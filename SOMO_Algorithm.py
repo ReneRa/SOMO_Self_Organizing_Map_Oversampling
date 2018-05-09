@@ -5,7 +5,7 @@ Paper: https://doi.org/10.1016/j.eswa.2017.03.073
 """
 
 from imblearn.over_sampling.base import BaseOverSampler
-import somoclu as somo
+import somoclu as somo_algorithm
 from collections import Counter
 import numpy as np
 from random import *
@@ -17,11 +17,12 @@ import warnings
 warnings.filterwarnings('ignore')
 
 
+
 class SOMO(BaseOverSampler):
     """ 
     Self Organizing Map Oversampling Algorithm 
-    An oversampling algorithm that leverages the dimensionality reducing and topological clustering 
-    characteristics of Self-Organizing Maps. 
+    An oversampling algorithm that leverages the topological 
+    clustering characteristics of Self-Organizing Maps. 
     Parameters
     ----------
     ratio : str, dict, or callable, optional (default='auto')
@@ -42,9 +43,10 @@ class SOMO(BaseOverSampler):
     som_rows : number of rows for two-dimensional output map of SOM
     som_cols : number of columns for two-dimensional output map of SOM
     iterations : number of iterations to train the Self Organizing Map
-    filtered_cluster_ratio : Defined the treshold to identify a cluster as filtered cluster
-    inter_intra_cluster_ratio : Describes the ratio of inter- and intracluster generated samples,
-    a higher value indicates more intracluster created samples.
+    filtered_cluster_ratio : Defined the treshold to identify a cluster as 
+        filtered cluster
+    inter_intra_cluster_ratio : Describes the ratio of inter- and intracluster
+        generated samples, a higher value indicates more intracluster created samples.
     """
 
     def __init__(self,
@@ -64,18 +66,22 @@ class SOMO(BaseOverSampler):
     def _cluster(self, X_sub):
         """
         Description: Clusters the normalized input data
-        Returns: som - Object with topological cluster map 
+        Returns ----------
+        som - Object with topological cluster map 
         """
-        som = somo.Somoclu(self.som_cols, self.som_rows, compactsupport=False)
+        som = somo_algorithm.Somoclu(self.som_cols, self.som_rows, compactsupport=False)
         som.train(np.float32(X_sub), epochs=self.iterations)
 
         return som
 
     def _filter_Cluster(self, som, X_sub, y_sub, class_sample):
         """
-        Description: Identifies all filtered cluster and the number of minority samples belonging to them 
-        Returns: som_cluster - Array of assigned clusters for each data sample, 
-                 filtered_cluster_size - array of filtered cluster and number of samples in each
+        Description: Identifies all filtered cluster and the number of minority
+            samples belonging to them 
+        Returns ----------
+        som_cluster : Array of assigned clusters for each data sample, 
+        filtered_cluster_size : array of filtered cluster and number of
+            samples in each
         """
         som_cluster = pd.DataFrame(
             [int(''.join(map(str, num))) for num in som.bmus])
@@ -104,9 +110,11 @@ class SOMO(BaseOverSampler):
     def _calc_Distances(self, X_sub, class_sample, som_cluster,
                         filtered_cluster_size):
         """
-        Description: Calculates average euclidean distances in each filtered cluster for each sample towards
-        all other samples and averages them
-        Returns: eucl_distances - array of average euclidean distance for each filtered cluster
+        Description: Calculates average euclidean distances in each filtered 
+            cluster for each sample towards all other samples and averages them
+        Returns ----------
+        eucl_distances : array of average euclidean distance for each 
+            filtered cluster
         """
         eucl_distances = []
         for num in filtered_cluster_size.index:
@@ -124,9 +132,11 @@ class SOMO(BaseOverSampler):
 
     def _calc_Density(self, filtered_cluster_size, eucl_distances):
         """
-        Description: Calculates the density for each filtered cluster and neighbor relation
-        Returns: filtered_cluster_size - DataFrame with density for each filtered cluster
-                 neighbors - 2d array with all filtered cluster relations and their density
+        Description: Calculates the density for each filtered cluster and neighbor
+            relation
+        Returns ----------
+        filtered_cluster_size : DataFrame with density for each filtered cluster
+        neighbors : 2d array with all filtered cluster relations and their density
         """
         # Calculate density in filtered cluster
         filtered_cluster_size['Density'] = np.divide(
@@ -156,8 +166,9 @@ class SOMO(BaseOverSampler):
                           som_cluster, filtered_cluster_size):
         """
         Description: Oversamples minority class in each filtered cluster
-        Returns: modified_X - oversampled X values
-                 modified_y - y values of minority class
+        Returns ----------
+        modified_X : oversampled X values
+        modified_y : y values of minority class
         """
         modified_X = np.empty((0, len(X_sub[0])), int)
         modified_y = []
@@ -206,10 +217,10 @@ class SOMO(BaseOverSampler):
                           som_cluster, neighbors):
         """
         Description: Oversamples between filtered clusters that are topological neighbors
-        Returns: modified_X - oversampled X values
-                 modified_y - y values of minority class
+        Returns ----------
+        modified_X : oversampled X values
+        modified_y : y values of minority class
         """
-
         modified_X = np.empty((0, len(X_sub[0])), int)
         modified_y = []
 
@@ -249,8 +260,9 @@ class SOMO(BaseOverSampler):
     def _sample(self, X, y):
         """
         Description: Oversampling of each minority class  
-        Returns: X - Original data input with oversampled data samples 
-                 y - original input with oversampled target classes
+        Returns ---------- 
+        X - Original data input with oversampled data samples 
+        y - original input with oversampled target classes
         """
 
         X = normalize(X)
@@ -262,40 +274,45 @@ class SOMO(BaseOverSampler):
             if class_sample == self.majority_class:
                 pass
             else:
+                try:
+                    X_sub = X[[np.flatnonzero((y == class_sample)
+                             | (y == self.majority_class))][0]]
+                    y_sub = y[[np.flatnonzero((y == class_sample)
+                             | (y == self.majority_class))][0]]
 
-                X_sub = X[[np.flatnonzero((y == class_sample)
-                         | (y == self.majority_class))][0]]
-                y_sub = y[[np.flatnonzero((y == class_sample)
-                         | (y == self.majority_class))][0]]
+                    som = self._cluster(X_sub)
+                    som_cluster, filtered_cluster_size = self._filter_Cluster(
+                        som, X_sub, y_sub, class_sample)
 
-                som = self._cluster(X_sub)
-                som_cluster, filtered_cluster_size = self._filter_Cluster(
-                    som, X_sub, y_sub, class_sample)
+                    eucl_distances = self._calc_Distances(
+                        X_sub, class_sample, som_cluster, filtered_cluster_size)
+                    filtered_cluster_size, neighbors = self._calc_Density(
+                        filtered_cluster_size, eucl_distances)
+                    # Case that there are no neighbors
+                    if (len(neighbors)> 0):
 
-                eucl_distances = self._calc_Distances(
-                    X_sub, class_sample, som_cluster, filtered_cluster_size)
-                filtered_cluster_size, neighbors = self._calc_Density(
-                    filtered_cluster_size, eucl_distances)
-                intra_X, intra_y = self._oversample_intra(
-                    int(num_samples * self.inter_intra_cluster_ratio), X_sub,
-                    y_sub, class_sample, som_cluster, filtered_cluster_size)
-                inter_X, inter_y = self._oversample_inter(
-                    int(num_samples * (1 - self.inter_intra_cluster_ratio)),
-                    X_sub, y_sub, class_sample, som_cluster, neighbors)
+                        intra_X, intra_y = self._oversample_intra(
+                            int(num_samples * self.inter_intra_cluster_ratio), X_sub,
+                            y_sub, class_sample, som_cluster, filtered_cluster_size)
+                        inter_X, inter_y = self._oversample_inter(
+                            int(num_samples * (1 - self.inter_intra_cluster_ratio)),
+                            X_sub, y_sub, class_sample, som_cluster, neighbors)
+                        samples_X = np.append(
+                            samples_X, np.append(intra_X, inter_X, axis=0), axis=0)
+                        samples_y = np.append(samples_y, np.append(intra_y, inter_y))
 
-                samples_X = np.append(
-                    samples_X, np.append(intra_X, inter_X, axis=0), axis=0)
-                samples_y = np.append(samples_y, np.append(intra_y, inter_y))
+                    else:
+                        intra_X, intra_y = self._oversample_intra(
+                            int(num_samples), X_sub,
+                            y_sub, class_sample, som_cluster, filtered_cluster_size)
+                        samples_X = np.append(samples_X,intra_X, axis=0)
+                        samples_y = np.append(samples_y,intra_y)
 
+
+                except ValueError:
+                    print('No filtered Cluster were identified for class %s' %(class_sample))
         X = np.append(X, samples_X, axis=0)
         y = np.append(y, samples_y)
 
         return (X, y)
 
-
-# Comments & ToDo's:
-# 1. What happends when there are no filtered cluster? TODO: Currently throws error
-# 2. What happens when there are no neighbors? 
-# 3. Should there be a better function to calculate weights? If the density value is really small, nearly all samples will be places in that filtered cluster
-# 4. Denormalize Output
-# 
